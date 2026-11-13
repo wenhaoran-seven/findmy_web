@@ -1,0 +1,60 @@
+/* Ubuntu-inspired aubergine and orange. Keep data surfaces light and semantic states distinct. */
+:root{--ub-orange:#e95420;--ub-purple:#77216f;--ub-ink:#2c1728;--ub-muted:#756571;--ub-line:#e7dce4;--ub-soft:#fcf5f8;--ub-action:linear-gradient(115deg,#ad3915,#94305c 56%,#77216f);color:var(--ub-ink);background:#2c001e}
+body{min-height:100vh;color:var(--ub-ink);background:radial-gradient(ellipse at 100% 0%,#e95420b3 0%,transparent 52%),radial-gradient(ellipse at 0% 75%,#77216f99 0%,transparent 56%),linear-gradient(135deg,#2c001e 0%,#5e2750 48%,#77216f 76%,#ad3d29 100%);background-attachment:fixed}
+.shell-head{background:linear-gradient(105deg,#2c001ef5,#5e2750f5 65%,#8c312bf5);border-bottom:1px solid #ffffff26;box-shadow:0 6px 24px #1f001c30;color:#fff}
+.shell-head strong{color:#fff;letter-spacing:-.7px;font-weight:750;display:flex;align-items:center;gap:12px}
+.shell-head strong::before{content:"";display:block;width:10px;height:30px;border-radius:5px;background:linear-gradient(180deg,#ffb58d,#e95420);box-shadow:0 0 18px #e9542055}
+.shell-head button{background:transparent;color:#f9edf5;border-color:#ffffff35;transition:background .15s,border-color .15s}
+.shell-head nav button{border-color:transparent}
+.shell-head button:hover:not(:disabled){background:#ffffff18;border-color:#ffffff70}
+.shell-head nav button.active{background:linear-gradient(115deg,#b53912,#94305c);color:#fff;border-color:#f08b635c;box-shadow:0 3px 12px #1b001d26}
+main{padding-bottom:24px}
+main>section{position:relative;background:#fffdfefc;border:1px solid #ffffff9e;border-radius:15px;box-shadow:0 12px 36px #21001926;overflow:hidden}
+main>section::before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#e95420,#b43b58 48%,#77216f)}
+h1,h2,h3{color:#3d1d35}h1{letter-spacing:-.5px}.heading>span{color:var(--ub-muted)}
+button,input,select,textarea{border-color:#d9cbd5;color:var(--ub-ink);background:#fff}
+button{transition:background .15s,border-color .15s,box-shadow .15s}
+button:hover:not(:disabled){background:#fff1e9;border-color:#c97655}
+button.active{color:#77216f;background:#f3e8f1;border-color:#c698be}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #bb491f;outline-offset:3px}
+input:focus,select:focus,textarea:focus{border-color:#b44d27}
+input[type=checkbox],progress,#serial-progress{accent-color:#b43b18}
+::selection{background:#f5c6b4;color:#2c001e}
+.card{background:linear-gradient(135deg,#fff,#fdf8fb);border-color:var(--ub-line)}
+.card p,.muted,.account-line small,td small{color:var(--ub-muted)}
+th{background:linear-gradient(105deg,#faeee8,#f4eaf3);color:#624056;border-bottom:1px solid #dfcbd8}
+td{border-bottom-color:#ede3e9}tbody tr:hover{background:#fdf5f1}
+.pager button{border-color:#dac4d3}.pager span{color:#70536a}
+.rename-icon{color:#8e3568}.badge{background:#f3e8f1;color:#713762}
+#notice:not(:empty),#warnings:not(:empty){padding:12px 16px;border-radius:9px;box-shadow:0 3px 14px #23001a16}
+#notice{color:#63254f}#notice:not(:empty){background:#fff4eeeF;border-left:4px solid #e95420}
+#warnings{color:#7c4210}#warnings:not(:empty){background:#fff3dc;border-left:4px solid #c6791f}
+pre{background:#f6f0f5;color:#4e3447;border:1px solid #eadfe7}
+.danger{color:#a22b32}button.danger:hover:not(:disabled){background:#fff0f0;border-color:#ca7878}
+#add-preview,#add-start,#polling button,#new-account button,#apple-login button,.time-picker-footer .time-picker-confirm{background:var(--ub-action);color:#fff;border-color:transparent;box-shadow:0 3px 9px #77216f1a}
+#add-preview:hover:not(:disabled),#add-start:hover:not(:disabled),#polling button:hover:not(:disabled),#new-account button:hover:not(:disabled),#apple-login button:hover:not(:disabled){filter:brightness(1.08)}
+dialog,.unified-track{background:linear-gradient(150deg,#fff,#fdf8fc);color:var(--ub-ink);border:1px solid #d8bfd1;box-shadow:0 20px 80px #21001955}
+dialog::backdrop,.unified-track::backdrop{background:#24001d99;backdrop-filter:blur(3px)}
+.unified-track header{border-bottom:2px solid #e5c5d8;padding-bottom:12px}
+.unified-track p,.ut-step,.unified-track li small{color:var(--ub-muted)}
+.unified-track button,.unified-track select,.unified-track input{color:#57354c;border-color:#d9cbd5}
+.unified-track button:hover:not(:disabled){background:#fff1e9}
+.unified-track li button.active{border-color:#aa4b7c;background:linear-gradient(110deg,#fff0e6,#f3e5f1);color:#592244}
+.unified-track aside,.unified-track #ut-map{border-color:var(--ub-line)}
+.unified-track #ut-address-panel{background:#fbf2f7;border-bottom-color:#e5cedc}
+.time-picker-popover{background:#fffdfd;border-color:#dbc4d3;color:var(--ub-ink)}
+.time-picker-days button{color:#4c2d42}.time-picker-days button:hover{background:#fff0e8}
+.time-picker-days button.is-today{background:#f4e7f1;color:#77216f}
+.time-picker-days button.is-selected,.time-picker-days button.is-selected:hover{background:var(--ub-action);color:#fff}
+.time-picker-time,.time-picker-footer{border-top-color:var(--ub-line)}
+.time-picker-time select{background:#fcf7fa;border-color:#ddcbd7;color:#4e3045}
+.serial-status{background:linear-gradient(110deg,#fff5ee,#f6edf7);border-color:#e6cbd9}
+#serial-state{color:#4c2440}#serial-hint{color:#765567}
+#view-serial [data-tone=running],#view-serial button[data-tone=running]:disabled{background:#f1e4f3;color:#68246b;border-color:#cda9d0}
+#view-serial button[data-tone=primary]:not(:disabled){background:var(--ub-action);color:#fff;border-color:transparent}
+#view-serial button:disabled{background:#eee8ed;color:#8b7d87;border-color:#e2d6df}
+#view-serial button[data-tone=success]:disabled{background:#e4f4ec;color:#176647}
+#view-serial button[data-tone=warning]:disabled{background:#fff3db;color:#885813}
+details{border:1px solid var(--ub-line);border-radius:8px;margin:10px 0;padding:12px;background:#fff}summary{cursor:pointer;color:#6b3157;font-weight:600}
+@media(prefers-reduced-motion:reduce){button,.shell-head button{transition:none}}
+@media(max-width:700px){body{background-attachment:scroll}.shell-head{gap:10px}.shell-head strong::before{height:24px}main>section{border-radius:11px}}

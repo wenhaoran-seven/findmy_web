@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body,#map{height:100%;width:100%;margin:0;overflow:hidden}body{font:12px "Microsoft YaHei",sans-serif}
+#popup{position:absolute;z-index:5;width:210px;padding:10px;border-radius:8px;background:#fff;box-shadow:0 3px 16px #0005;line-height:1.5;pointer-events:none}
+#popup div{white-space:pre-line;margin-top:5px}[hidden]{display:none!important}
+</style>
+</head>
+<body><div id="map"></div><div id="popup" hidden></div>
+<script>
+let map=null, groups=[], selectedId=null, focused=null, movingId=null, playback=null;
+const offsets=new Map(), overlays=new Map(), popup=document.getElementById('popup');
+let geocoder=null, addressRequest=0, lastStateAt=0;
+let markerRefreshTimer=null, suppressMapClick=false;
+const MAX_VISIBLE_MARKERS=600;
+function send(type,extra={}){parent.postMessage({type,...extra},'*')}
+function sendState(status='',progress=0,force=false){
+  const now=performance.now();if(!force&&now-lastStateAt<120)return;lastStateAt=now;
+  send('map-state',{selectedId,movingId,playingId:playback?.id||null,progress,status,
+    offsetIds:[...offsets.keys()]});
+}
+function wgs84ToBd09(lon,lat){
+  if(lon<72.004||lon>137.8347||lat<.8293||lat>55.8271)return {lon,lat};
+  const a=6378245,ee=.00669342162296594323,x=lon-105,y=lat-35;
+  let dLat=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x));
+  let dLon=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));
+  dLat+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3;
+  dLat+=(20*Math.sin(y*Math.PI)+40*Math.sin(y/3*Math.PI))*2/3;
+  dLat+=(160*Math.sin(y/12*Math.PI)+320*Math.sin(y*Math.PI/30))*2/3;
+  dLon+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3;
+  dLon+=(20*Math.sin(x*Math.PI)+40*Math.sin(x/3*Math.PI))*2/3;
+  dLon+=(150*Math.sin(x/12*Math.PI)+300*Math.sin(x/30*Math.PI))*2/3;
+  const rad=lat*Math.PI/180,magic=1-ee*Math.sin(rad)**2,root=Math.sqrt(magic);
+  const gcjLat=lat+dLat*180/((a*(1-ee))/(magic*root)*Math.PI);
+  const gcjLon=lon+dLon*180/(a/root*Math.cos(rad)*Math.PI);
+  const pi=Math.PI*3000/180,z=Math.hypot(gcjLon,gcjLat)+.00002*Math.sin(gcjLat*pi);
+  const theta=Math.atan2(gcjLat,gcjLon)+.000003*Math.cos(gcjLon*pi);
+  return {lon:z*Math.cos(theta)+.0065,lat:z*Math.sin(theta)+.006};
+}
+function pointOf(p){return new BMap.Point(p.lon,p.lat)}
+function displayPoint(group,p){const bd=wgs84ToBd09(p.lon,p.lat),offset=offsets.get(group.id)||{lon:0,lat:0};
+  return new BMap.Point(bd.lon+offset.lon,bd.lat+offset.lat)}
+function dropSymbol(color,highlight=false,endpoint=false){
+  return new BMap.Symbol(BMap_Symbol_SHAPE_POINT,{
+    scale:highlight?3.1:endpoint?2.2:1.8,fillColor:color,fillOpacity:1,
+    strokeColor:highlight?'#facc15':'#fff',strokeWeight:highlight?4:2
+  });
+}
+function clearOverlays(){
+  for(const list of overlays.values())for(const item of list)map.removeOverlay(item);
+  overlays.clear();
+}
+function visibleBounds(){
+  const bounds=map.getBounds?.(),sw=bounds?.getSouthWest?.(),ne=bounds?.getNorthEast?.();
+  return sw&&ne?{west:sw.lng,east:ne.lng,south:sw.lat,north:ne.lat}:null;
+}
+function inBounds(point,bounds){
+  return !bounds||(point.lng>=bounds.west&&point.lng<=bounds.east&&
+    point.lat>=bounds.south&&point.lat<=bounds.north);
+}
+function syncPopup(){
+  if(!focused||popup.hidden||!map)return;
+  const group=groups.find(g=>g.id===focused.id),point=group?.points[focused.index];
+  if(point){const pixel=map.pointToPixel(displayPoint(group,point));positionPopup(pixel.x,pixel.y);}
+}
+function draw(){
+  if(!map||playback)return;
+  clearOverlays();
+  const bounds=visibleBounds();let visibleCount=0;
+  for(const group of groups)for(const p of group.points)
+    if(inBounds(displayPoint(group,p),bounds))visibleCount++;
+  const stride=Math.max(1,Math.ceil(visibleCount/MAX_VISIBLE_MARKERS));let ordinal=0;
+  for(const group of groups){
+    const list=[],markers=[];
+    const path=group.points.map(p=>displayPoint(group,p));
+    let line=null;
+    if(path.length>1){line=new BMap.Polyline(path,{strokeColor:group.color,strokeWeight:4,strokeOpacity:.86});
+      map.addOverlay(line);list.push(line);}
+    for(let index=0;index<group.points.length;index++){
+      const p=group.points[index],position=path[index],inView=inBounds(position,bounds);
+      const latest=focused?.id===group.id&&focused.index===index;
+      const endpoint=index===0||index===group.points.length-1;
+      const sampled=inView&&ordinal++%stride===0;
+      if(!sampled&&!latest&&!(endpoint&&inView))continue;
+      const marker=new BMap.Marker(position,{icon:dropSymbol(group.color,latest,endpoint)});
+      marker.addEventListener('click',()=>{
+        suppressMapClick=true;setTimeout(()=>{suppressMapClick=false},0);
+        selectedId=group.id;showPointInfo(group,p,index,true);
+        sendState('已选中位置点。',0,true);
+      });
+      if(movingId===group.id){
+        let base=null;
+        marker.addEventListener('dragstart',()=>{
+          const old=offsets.get(group.id)||{lon:0,lat:0},start=marker.getPosition();
+          base={lon:old.lon,lat:old.lat,startLon:start.lng,startLat:start.lat};closePopup();
+        });
+        const shift=()=>{
+          if(!base)return null;
+          const current=marker.getPosition(),offset={
+            lon:base.lon+current.lng-base.startLon,lat:base.lat+current.lat-base.startLat};
+          if(line)line.setPath(group.points.map(point=>{
+            const bd=wgs84ToBd09(point.lon,point.lat);
+            return new BMap.Point(bd.lon+offset.lon,bd.lat+offset.lat);
+          }));
+          for(const [otherIndex,other] of markers){if(other!==marker){
+            const bd=wgs84ToBd09(group.points[otherIndex].lon,group.points[otherIndex].lat);
+            other.setPosition(new BMap.Point(bd.lon+offset.lon,bd.lat+offset.lat));
+          }}
+          return offset;
+        };
+        marker.addEventListener('dragging',shift);
+        marker.addEventListener('dragend',()=>{
+          const offset=shift();if(!offset)return;
+          offsets.set(group.id,offset);base=null;draw();
+          sendState('轨迹显示位置已移动；原始坐标不变。',0,true);
+        });
+      }
+      map.addOverlay(marker);
+      if(movingId===group.id)marker.enableDragging();
+      if(latest||movingId===group.id)marker.setTop(true);
+      list.push(marker);markers.push([index,marker]);
+    }
+    overlays.set(group.id,list);
+  }
+  syncPopup();
+}
+function scheduleMarkerRefresh(){
+  if(playback||markerRefreshTimer!==null)return;
+  markerRefreshTimer=setTimeout(()=>{markerRefreshTimer=null;draw()},120);
+}
+function fit(id){
+  if(!map)return;map.checkResize?.();
+  let minLon=Infinity,maxLon=-Infinity,minLat=Infinity,maxLat=-Infinity,count=0;
+  for(const group of groups){if(id&&group.id!==id)continue;
+    for(const p of group.points){const bd=displayPoint(group,p);
+      minLon=Math.min(minLon,bd.lng);maxLon=Math.max(maxLon,bd.lng);
+      minLat=Math.min(minLat,bd.lat);maxLat=Math.max(maxLat,bd.lat);count++;}}
+  if(!count){draw();return;}
+  const sw=new BMap.Point(minLon,minLat),ne=new BMap.Point(maxLon,maxLat);
+  if(count===1||(minLon===maxLon&&minLat===maxLat))map.centerAndZoom(sw,16);
+  else map.setViewport([sw,ne],{margins:[50,50,50,50]});
+  draw();
+}
+function closePopup(){addressRequest++;popup.hidden=true;focused=null;}
+function positionPopup(x,y){
+  popup.style.left=`${Math.max(8,Math.min(x+14,innerWidth-228))}px`;
+  popup.style.top=`${Math.max(8,Math.min(y-28,innerHeight-150))}px`;
+}
+function showPointInfo(group,p,index,reverseAddress=false){
+  send("location-selected",{id:group.id,index});
+  const pixel=map.pointToPixel(displayPoint(group,p)),bd=wgs84ToBd09(p.lon,p.lat);
+  const role=index===0?'起点':index===group.points.length-1?'终点':'途经点';
+  const shifted=offsets.has(group.id)?'\n显示位置已偏移，原始坐标未更改':'';
+  const title=document.createElement('strong'),detail=document.createElement('div');
+  title.textContent=`${group.name} · ${role} ${index+1}/${group.points.length}`;
+  const base=`${String(p.time||'').replace('T',' ').replace('+08:00','')}（北京时间）\nWGS84：${Number(p.lat).toFixed(7)}, ${Number(p.lon).toFixed(7)}\nBD09：${bd.lat.toFixed(7)}, ${bd.lon.toFixed(7)}\n精度：${p.accuracy??'—'} 米 · status：${p.status??'—'}${shifted}`;
+  detail.textContent=base;popup.replaceChildren(title,detail);popup.hidden=false;
+  focused={id:group.id,index};if(!playback)draw();positionPopup(pixel.x,pixel.y);
+  const request=++addressRequest;
+  if(reverseAddress){
+    detail.textContent=base+'\n参考地址：正在解析…';
+    try{if(!geocoder)geocoder=new BMap.Geocoder();
+      geocoder.getLocation(new BMap.Point(bd.lon,bd.lat),result=>{
+        if(request===addressRequest&&!popup.hidden)detail.textContent=base+'\n参考地址：'+(result?.address||'未能解析');
+      });
+    }catch{detail.textContent=base+'\n参考地址：地址服务不可用';}
+  }
+}
+function showSelectedLatest(pan=false){
+  const group=groups.find(g=>g.id===selectedId);if(!group?.points.length)return;
+  const index=group.points.length-1,point=displayPoint(group,group.points[index]);
+  if(pan)map.panTo(point);
+  if(selectedId===group.id&&!playback)showPointInfo(group,group.points[index],index);
+}
+function selectGroup(id){
+  if(playback)return;
+  selectedId=selectedId===id?null:id;closePopup();draw();
+  if(selectedId)showSelectedLatest(true);
+  sendState(selectedId?'已选中轨迹，最新位置已高亮。':'已取消轨迹选中。',0,true);
+}
+function stopPlayback(message='回放已停止。',completed=false){
+  if(!playback)return;
+  cancelAnimationFrame(playback.frame);
+  for(const item of playback.items)map.removeOverlay(item);
+  playback=null;
+  draw();sendState(message,completed?100:0,true);
+}
+const PLAYBACK_MOVE_METERS=30;
+function playbackDistanceMeters(a,b){
+  const rad=Math.PI/180,lat1=Number(a.lat)*rad,lat2=Number(b.lat)*rad;
+  const dLat=lat2-lat1,dLon=(Number(b.lon)-Number(a.lon))*rad;
+  const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  return 2*6371000*Math.asin(Math.min(1,Math.sqrt(h)));
+}
+function playbackMovementIndexes(points){
+  if(!points.length)return [];
+  const indexes=[0];
+  for(let i=1;i<points.length;i++)
+    if(playbackDistanceMeters(points[indexes[indexes.length-1]],points[i])>=PLAYBACK_MOVE_METERS)
+      indexes.push(i);
+  return indexes;
+}
+function startPlayback(id,duration){
+  const group=groups.find(g=>g.id===id);
+  if(!group||group.points.length<2)return;
+  if(playback){stopPlayback();return;}
+  movingId=null;selectedId=id;closePopup();fit(id);clearOverlays();
+  const indexes=playbackMovementIndexes(group.points);
+  const points=indexes.map(index=>group.points[index]);
+  const times=points.map(p=>Date.parse(p.time));
+  const start=Date.parse(group.points[0].time),end=Date.parse(group.points[group.points.length-1].time);
+  const first=displayPoint(group,group.points[0]);
+  const marker=new BMap.Marker(first,{icon:dropSymbol(group.color,true)});
+  const label=new BMap.Label('',{position:first,offset:new BMap.Size(18,-75)});
+  label.setStyle({backgroundColor:'rgba(255,255,255,.96)',border:'1px solid #94a3b8',
+    borderRadius:'6px',padding:'5px 7px',color:'#0f172a',fontSize:'12px',lineHeight:'1.4',
+    whiteSpace:'pre-line',boxShadow:'0 2px 6px rgba(0,0,0,.18)',pointerEvents:'none'});
+  map.addOverlay(marker);map.addOverlay(label);marker.setTop(true);
+  playback={id,group,points,indexes,times,start,end,startedAt:performance.now()+150,
+    durationMs:Math.max(5000,Math.min(180000,Number(duration||30)*1000)),
+    fraction:0,cursor:0,renderedCursor:-1,frame:0,marker,label,line:null,items:[marker,label],revealed:-1};
+  marker.addEventListener('click',()=>{
+    if(playback?.id===id)showPointInfo(group,playback.points[playback.cursor],playback.indexes[playback.cursor],true);
+  });
+  updatePlaybackGeometry(playback);
+  sendState(`回放中：${group.name} · ${points.length} 个位置变化点（忽略 30 米内抖动）`,0,true);
+  function tick(now){
+    if(!playback||playback.id!==id)return;
+    const state=playback;state.fraction=Math.max(0,Math.min(1,(now-state.startedAt)/state.durationMs));
+    if(Number.isFinite(start)&&Number.isFinite(end)&&end>start){
+      const target=start+(end-start)*state.fraction;let i=0;
+      while(i+1<times.length&&times[i+1]<=target)i++;
+      state.cursor=i;
+    }else state.cursor=Math.min(points.length-1,Math.floor(state.fraction*points.length));
+    updatePlaybackGeometry(state);
+    sendState(`回放中：${group.name} · ${Math.round(state.fraction*100)}% · ${state.cursor+1}/${points.length} 个变化点`,Math.round(state.fraction*100));
+    if(state.fraction>=1)stopPlayback(`回放完成：${group.name}，全部位置点已恢复。`,true);
+    else state.frame=requestAnimationFrame(tick);
+  }
+  playback.frame=requestAnimationFrame(tick);
+}
+function updatePlaybackGeometry(state){
+  const {group,cursor,points}=state;
+  if(cursor===state.renderedCursor)return;
+  const path=[];for(let i=0;i<=cursor;i++)path.push(displayPoint(group,points[i]));
+  const head=path[path.length-1];
+  state.marker.setPosition(head);state.label.setPosition(head);state.marker.setTop(true);
+  if(path.length>1){
+    if(!state.line){state.line=new BMap.Polyline(path,{strokeColor:group.color,strokeWeight:4,strokeOpacity:.86});
+      map.addOverlay(state.line);state.items.push(state.line);state.marker.setTop(true);}
+    else state.line.setPath(path);
+  }
+  const reached=state.fraction>0?cursor:-1;
+  for(let i=state.revealed+1;i<=reached;i++){
+    const p=points[i],passed=new BMap.Marker(displayPoint(group,p),{
+      icon:dropSymbol(group.color,false,i===0||i===points.length-1)});
+    passed.addEventListener('click',()=>showPointInfo(group,p,state.indexes[i],true));
+    map.addOverlay(passed);state.items.push(passed);
+  }
+  state.revealed=Math.max(state.revealed,reached);state.marker.setTop(true);
+  state.renderedCursor=cursor;
+  const latest=points[cursor];
+  state.label.setContent(`最近位置记录\n时间：${String(latest.time||'').replace('T',' ').replace('+08:00','')}\nWGS84：${Number(latest.lat).toFixed(6)}, ${Number(latest.lon).toFixed(6)}`);
+}
+window.addEventListener('message',event=>{
+  if(event.source!==parent||!event.data||typeof event.data!=='object')return;
+  const data=event.data;
+  if(data.type==='tracks'){
+    if(playback)stopPlayback('数据已更新，回放已停止。');
+    groups=Array.isArray(data.groups)?data.groups.filter(g=>Array.isArray(g.points)).map(g=>({
+      id:String(g.id||g.name),name:String(g.name||g.id||'设备'),color:String(g.color||'#d34a38'),
+      points:g.points.filter(p=>Number.isFinite(Number(p.lon))&&Number.isFinite(Number(p.lat))).map(p=>({
+        lon:Number(p.lon),lat:Number(p.lat),time:p.time,accuracy:p.accuracy,status:p.status}))})):[];
+    for(const id of [...offsets.keys()])if(!groups.some(g=>g.id===id))offsets.delete(id);
+    if(selectedId&&!groups.some(g=>g.id===selectedId))selectedId=null;
+    if(movingId&&!groups.some(g=>g.id===movingId))movingId=null;
+    closePopup();draw();if(selectedId)showSelectedLatest();sendState('',0,true);
+  }else if(data.type==='resize'&&map){map.checkResize?.();scheduleMarkerRefresh();}
+  else if(data.type==='fit')fit(data.id);
+  else if(data.type==='zoom'&&map)map.setZoom(Math.max(3,Math.min(19,map.getZoom()+Number(data.delta||0))));
+  else if(data.type==='focus'&&map){
+    const group=groups.find(g=>g.id===String(data.id))||groups[0],index=Number(data.index),point=group?.points[index];
+    if(!Number.isInteger(index)||!point)return;
+    selectedId=group.id;map.centerAndZoom(displayPoint(group,point),Math.max(16,map.getZoom()));
+    showPointInfo(group,point,index);sendState('已定位到轨迹位置点。',0,true);
+  }else if(data.type==='select')selectGroup(String(data.id));
+  else if(data.type==='focus-group'){
+    const group=groups.find(g=>g.id===String(data.id));if(!group?.points.length)return;
+    selectedId=group.id;fit(group.id);showSelectedLatest();
+    sendState(`已聚焦：${group.name}。`,0,true);
+  }
+  else if(data.type==='move'){
+    if(playback)return;movingId=movingId===String(data.id)?null:String(data.id);
+    closePopup();draw();
+    sendState(movingId?'拖动水滴可整体移动轨迹；原始坐标不变。':'已结束轨迹移动。',0,true);
+  }else if(data.type==='reset'){
+    offsets.delete(String(data.id));draw();sendState('轨迹已归位。',0,true);
+  }else if(data.type==='play')startPlayback(String(data.id),data.duration);
+  else if(data.type==='stop')stopPlayback();
+});
+window.initBaiduMap=()=>{
+  try{
+    const center=wgs84ToBd09(114.06,22.54);
+    map=new BMap.Map('map',{enableMapClick:false});
+    map.centerAndZoom(new BMap.Point(center.lon,center.lat),12);
+    map.enableScrollWheelZoom(true);
+    map.addEventListener('moving',syncPopup);
+    map.addEventListener('moveend',scheduleMarkerRefresh);
+    map.addEventListener('zoomend',scheduleMarkerRefresh);
+    map.addEventListener('zoomend',syncPopup);
+    map.addEventListener('click',event=>{
+      if(playback||suppressMapClick||event?.overlay)return;
+      selectedId=null;closePopup();draw();sendState('已取消轨迹选中。',0,true);
+    });
+    addEventListener('resize',scheduleMarkerRefresh);send('baidu-ready');sendState('',0,true);
+  }catch{send('baidu-error')}
+};
+const script=document.createElement('script');
+script.src='https://api.map.baidu.com/api?v=3.0&ak=__BAIDU_BROWSER_AK__&callback=initBaiduMap';
+script.onerror=()=>send('baidu-error');document.head.append(script);
+setTimeout(()=>{if(!map)send('baidu-error')},10000);
+</script></body></html>
