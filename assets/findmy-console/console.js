@@ -61,7 +61,7 @@ function openEditor(d){
     await Promise.allSettled(jobs);
   });
   body.onclick=e=>{const b=e.target.closest('[data-op]');if(!b)return;
-    if(b.dataset.op==='rename-all'){action(b,async()=>{const out=$('shared-name-result');out.textContent='正在同步所有平台并核对名称…';try{const r=await api('devices/rename',{device_key:d.id,name:$('shared-device-name').value});d.name=r.name;$('edit-title').textContent=r.name+' · 设备信息';out.textContent=`名称已同步，已核对 ${r.updated} 个平台设备。`;await refresh();}catch(err){out.textContent=err.message;}});return;}
+    if(b.dataset.op==='rename-all'){action(b,async()=>{const out=$('shared-name-result');out.textContent='正在同步所有平台并核对名称…';try{const r=await api('devices/rename',{device_key:d.id,name:$('shared-device-name').value});d.name=r.name;for(const member of d.members)member.name=r.name;const listed=state.devices.find(x=>x.id===d.id);if(listed){listed.name=r.name;for(const member of listed.members)member.name=r.name;}render();$('edit-title').textContent=r.name+' · 设备信息';out.textContent=`名称已同步，已核对 ${r.updated} 个平台设备。`;}catch(err){out.textContent=err.message;}});return;}
     const card=b.closest('[data-member]'),m=members[Number(card.dataset.member)],op=b.dataset.op;
     action(b,async()=>{const out=card.querySelector('.result');try{let result;out.textContent='正在处理…';if(op==='toggle'){await schedule(m,!m.enabled);m.enabled=!m.enabled;b.textContent=m.enabled?'停止查询':'开始查询';}
       if(op==='delete'){if(!confirm(`删除 ${m.account_label} 的 ${d.name}（SN ${d.sn}）？${m.platform==='google'?'同时在 Google 注销。':'其他平台设备保持不变。'}`)){out.textContent='';return;}result=m.platform==='google'?await proxy(m,'devices/'+m.id+'/delete',{confirm_sn:d.sn}):await proxy(m,'devices/'+m.id,undefined,'DELETE');}
