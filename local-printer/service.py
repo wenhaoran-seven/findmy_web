@@ -21,7 +21,7 @@ with sqlite3.connect(DB) as c:
 class Job(BaseModel):
  id:uuid.UUID
  sn:str=Field(pattern=r'^\d{12}$')
- mac:str=Field(pattern=r'^[0-9A-F]{12}$')
+ mac:str=Field(pattern=r'^(?:[0-9A-F]{12})?$')
  device_name:str=Field(min_length=1,max_length=80)
  width:float=Field(default=10,ge=10,le=20)
  height:float=Field(default=10,ge=10,le=100)
@@ -100,7 +100,7 @@ def raster(j,dpi=203):
  total=paper_width(j)
  im=Image.new('RGB',(px(total),px(paper_height(j))),'white');draw=ImageDraw.Draw(im)
  for col,value in [(0,j.sn),(2,j.mac)]:
-  if col>=j.columns:continue
+  if col>=j.columns or not value:continue
   qr=qrcode.QRCode(version=None,error_correction=getattr(qrcode.constants,'ERROR_CORRECT_'+j.qr_ecc),box_size=1,border=4);qr.add_data(value);qr.make(fit=True)
   ox,oy=label_origin(j,col)
   matrix=qr.get_matrix();n=len(matrix);size=px(j.qr_size);x=px(ox+(j.width-j.qr_size)/2);y=px(oy+(j.height-j.qr_size)/2)
@@ -208,7 +208,7 @@ async def local_access(request:Request,call_next):
  return response
 @app.get('/health')
 def health():
- try:return {'ok':True,'printer':printer(),'physical_ack':False,'layout_version':4,'name_counting':'han2','font_options':True,'paper_options':True,'overflow':'omit','text_rendering':'simhei-bold-mono-v2','qr_mm':10,'qr_ecc':'H','offset_mm':{'x':1,'y':2}}
+ try:return {'ok':True,'printer':printer(),'physical_ack':False,'optional_mac':True,'layout_version':4,'name_counting':'han2','font_options':True,'paper_options':True,'overflow':'omit','text_rendering':'simhei-bold-mono-v2','qr_mm':10,'qr_ecc':'H','offset_mm':{'x':1,'y':2}}
  except Exception as e:return {'ok':False,'detail':str(e)}
 @app.get('/jobs/{id}')
 def status(id:uuid.UUID):

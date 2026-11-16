@@ -26,19 +26,21 @@ const settingFields={width:'width',height:'height',gap:'gap',row_gap:'row-gap',c
 function readSettings(){const result={};for(const [key,id] of Object.entries(settingFields)){const el=$(id);if(!el.checkValidity())throw Error('打印参数无效，请检查 '+el.parentElement.textContent);result[key]=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:Number(el.value);}if(result.qr_size>Math.min(result.width,result.height))throw Error('二维码尺寸不能超过单张标签宽高');return result;}
 try{const saved=JSON.parse(localStorage.getItem('findmy-print-settings-v1')||'{}');for(const [key,id] of Object.entries(settingFields)){if(saved[key]===undefined)continue;const el=$(id);if(el.type==='checkbox')el.checked=!!saved[key];else el.value=saved[key];}}catch{}
 for(const id of Object.values(settingFields))$(id).addEventListener('change',()=>{try{localStorage.setItem('findmy-print-settings-v1',JSON.stringify(readSettings()));$('settings-status').textContent='参数已保存，下次新打印或重新打印时生效；已提交任务保持原参数。';}catch(e){$('settings-status').textContent=e.message;}});
-let records=new Map(),buffer='',listening=false,busy=false,current=null,autoPaused=false,storageError='';
-try{for(const r of JSON.parse(localStorage.getItem(key)||'[]'))if(/^\d{12}$/.test(r.sn)&&/^[0-9A-F]{12}$/.test(r.mac))records.set(r.sn+'/'+r.mac,{...r,printed:!!r.printed||r.jobStatus==='spool_complete'});}catch{storageError='无法读取已打印记录；请检查浏览器存储。';}
+let records=new Map(),buffer='',listening=false,busy=false,current=null,autoPaused=false,storageError='',manualPreparing=false;
+try{for(const r of JSON.parse(localStorage.getItem(key)||'[]'))if(/^\d{12}$/.test(r.sn)&&(/^[0-9A-F]{12}$/.test(r.mac)||(r.source==='manual'&&r.mac==='')))records.set(r.sn+'/'+r.mac,{...r,printed:!!r.printed||r.jobStatus==='spool_complete'});}catch{storageError='无法读取已打印记录；请检查浏览器存储。';}
 function save(){try{localStorage.setItem(key,JSON.stringify([...records.values()].filter(r=>r.printed||r.job)));storageError='';}catch{storageError='已打印标识保存失败，刷新后可能丢失。';log(storageError);}}
 function log(s){$('log').textContent=(new Date().toLocaleTimeString()+' '+s+'\n'+$('log').textContent).slice(0,8000);}
 function render(){
  const connected=transport.connected;
+ $('manual-submit').disabled=!!current||manualPreparing;
+ $('manual-submit').textContent=manualPreparing?'正在准备…':current?.source==='manual'?'正在打印…':'直接打印';
  $('connect').disabled=busy||!!transport.session||transport.opening;
  $('connect').textContent=transport.opening?'正在连接…':connected?'串口已连接':'选择串口并监听';
  $('stop').disabled=busy||!connected||!listening;$('start').disabled=busy||!connected||listening;$('disconnect').disabled=busy||!connected;
  $('clear').disabled=!!current||![...records.values()].some(r=>r.printed||r.job);
  $('status').textContent=`${connected?(listening?'正在监听全 F6 广播':'串口已连接，监听已停止'):'串口未连接'} · 已识别 ${records.size} 台 · 已打印 ${[...records.values()].filter(r=>r.printed).length} 台${storageError?' · '+storageError:''}`;
  $('rows').replaceChildren();
- for(const [k,r] of [...records].reverse().sort((a,b)=>(b[1].lastSeenAt||0)-(a[1].lastSeenAt||0))){const tr=document.createElement('tr');for(const text of [r.device_name||'--',r.sn,r.mac,Number.isFinite(r.rssi)?r.rssi+' dBm':'--',Number.isFinite(r.battery_mv)?(r.battery_mv/1000).toFixed(3)+' V':'--',r.time||'--',r.printed?'打印完成':r.printStatus||'待打印']){const td=document.createElement('td');td.textContent=text;tr.append(td);}const td=document.createElement('td'),b=document.createElement('button');b.textContent='重新打印';b.disabled=!!current;b.onclick=()=>{if(current)return;r.printed=false;r.job=null;r.jobStatus=null;r.printStatus='待打印';save();print(r);};td.append(b);tr.append(td);$('rows').append(tr);}
+ for(const [k,r] of [...records].reverse().sort((a,b)=>(b[1].lastSeenAt||0)-(a[1].lastSeenAt||0))){const tr=document.createElement('tr');for(const text of [r.device_name||'--',r.sn,r.mac||'--',Number.isFinite(r.rssi)?r.rssi+' dBm':'--',Number.isFinite(r.battery_mv)?(r.battery_mv/1000).toFixed(3)+' V':'--',r.time||'--',r.printed?'打印完成':r.printStatus||'待打印']){const td=document.createElement('td');td.textContent=text;tr.append(td);}const td=document.createElement('td'),b=document.createElement('button');b.textContent='重新打印';b.disabled=!!current;b.onclick=()=>{if(current)return;r.printed=false;r.job=null;r.jobStatus=null;r.printStatus='待打印';save();print(r);};td.append(b);tr.append(td);$('rows').append(tr);}
 
 }
 let namesLoading=false;
@@ -49,7 +51,7 @@ async function refreshDeviceNames(){
   const response=await fetch('/api/console',{headers:{'X-Local-Token':document.querySelector('meta[name=local-token]').content},signal:AbortSignal.timeout(15000)});
   if(!response.ok)return;
   const data=await response.json(),names=new Map((data.devices||[]).map(d=>[d.sn,d.name]));
-  for(const r of records.values()){const name=names.get(r.sn);if(name)r.device_name=name;}
+  for(const r of records.values()){const name=names.get(r.sn);if(name&&r.source!=='manual')r.device_name=name;}
   render();
  }catch{}finally{namesLoading=false;}
 }
@@ -61,7 +63,7 @@ async function stop(){await transport.write('AT+SCAN0\r\n');listening=false;buff
 $('connect').onclick=()=>action(async()=>{if(typeof serialTransport!=='undefined'&&(serialTransport.session||serialTransport.opening))throw Error('请先断开串口烧录页面的连接。');await transport.connect();await start();});
 $('start').onclick=()=>action(start);$('stop').onclick=()=>action(stop);
 $('disconnect').onclick=()=>action(async()=>{try{await stop();}finally{await transport.disconnect();}});
-function pump(){if(!$('auto').checked||autoPaused||current)return;const r=[...records.values()].find(r=>!r.printed&&!r.job);if(r)print(r);}
+function pump(){if(!$('auto').checked||autoPaused||current||manualPreparing)return;const r=[...records.values()].find(r=>r.source!=='manual'&&!r.printed&&!r.job);if(r)print(r);}
 const bridge='http://127.0.0.1:18765';
 async function bridgeRequest(path,body){const response=await fetch(bridge+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(10000)});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data;}
 async function print(r){
@@ -72,11 +74,14 @@ async function print(r){
   if(!r.job){
    const settings=readSettings(),{width,height,gap,row_gap}=settings;
    if(![width,height,gap,row_gap].every(Number.isFinite)||width<10||width>20||height<10||height>100||gap<0||gap>5||row_gap<0||row_gap>10||width*settings.columns+gap*(settings.columns-1)+settings.margin_left+settings.margin_right>104)throw Error('参数无效：单张宽10–20mm、高10–100mm，列间距0–5mm，行间距0–10mm，总宽不超过104mm。');
+   if(r.source!=='manual'){
    const response=await fetch('/api/console',{headers:{'X-Local-Token':document.querySelector('meta[name=local-token]').content},signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('无法读取设备名称，请稍后重试');
    const snapshot=await response.json(),device=snapshot.devices?.find(d=>d.sn===r.sn);
    if(!device?.name?.trim())throw Error('未找到此 SN 的设备名称，已暂停打印，请先在设备列表添加或核对');
    r.device_name=device.name.trim();
+   }
+   if(!r.mac&&!health.optional_mac)throw Error('本机打印服务需更新后才能打印无 MAC 标签');
    r.job={id:crypto.randomUUID(),sn:r.sn,mac:r.mac,device_name:r.device_name,...settings};r.printStatus='准备提交';save();if(storageError){r.job=null;throw Error('请先允许浏览器存储，避免重复打印');}
   }
   let result=await bridgeRequest('/jobs',r.job);log('本机打印任务 '+r.job.id+' · '+r.sn);
@@ -87,6 +92,22 @@ async function print(r){
  }catch(e){autoPaused=true;r.printStatus=(r.job?'结果待核对，不自动重发：':'无法打印：')+e.message;save();log(r.printStatus+'。请确认本机打印服务运行，并允许浏览器访问本地网络。');}
  finally{current=null;render();pump();}
 }
+$('manual-form').onsubmit=async event=>{
+ event.preventDefault();if(current||manualPreparing)return;
+ const sn=$('manual-sn').value.trim(),name=$('manual-name').value.trim();
+ if(!/^\d{12}$/.test(sn)||!name||name.length>80){$('manual-status').textContent='请输入12位数字 SN 和1–80字的名称';return;}
+ manualPreparing=true;render();$('manual-status').textContent='正在匹配 MAC…';
+ let record;
+ try{
+  let mac='';
+  try{const response=await fetch('/api/console',{headers:{'X-Local-Token':document.querySelector('meta[name=local-token]').content},signal:AbortSignal.timeout(5000)});if(response.ok){const data=await response.json(),d=data.devices?.find(d=>d.sn===sn);const value=String(d?.mac||'').replace(/:/g,'').toUpperCase();if(/^[0-9A-F]{12}$/.test(value))mac=value;}}catch{}
+  const k=sn+'/'+mac,old=records.get(k);
+  if((old?.printed||old?.job)&&!confirm('此 SN 已有手动打印记录。确认重新打印？如果上次结果未确认，请先核对打印机。'))return;
+  record={sn,mac,device_name:name,source:'manual',printed:false,time:new Date().toLocaleString(),lastSeenAt:Date.now()};
+  records.set(k,record);log('手动打印 SN '+sn+(mac?' / MAC '+mac:' / MAC 留空'));
+ }finally{manualPreparing=false;render();}
+ if(record){await print(record);$('manual-status').textContent=(record.printStatus||'已提交')+(record.mac?'':'；MAC 标签留空');}
+};
 $('check').onclick=()=>action(async()=>{try{const h=await bridgeRequest('/health');$('bridge').textContent=h.ok?'本机服务已连接：'+h.printer+'':h.detail;}catch(e){$('bridge').textContent='连接失败。当前网页：'+location.origin+'；本机接口：'+bridge+'。请允许此网站访问本地网络，并在连接打印机的电脑上操作。';throw e;}});
 
 $('auto').onchange=()=>{autoPaused=false;pump();};
