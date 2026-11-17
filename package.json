@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "test": "node tests/test_viewer.cjs && node tests/test_viewer_open.cjs && node tests/test_viewer_track.cjs && node tests/test_track_progressive.cjs && node tests/test_track_loading.cjs && node tests/test_track_preload.cjs && node tests/test_track_scroll.cjs && node tests/test_track_selection.cjs && node tests/test_control_tasks.cjs && node tests/test_manual_print.cjs"
+    "test": "node tests/test_viewer.cjs && node tests/test_viewer_open.cjs && node tests/test_viewer_track.cjs && node tests/test_track_progressive.cjs && node tests/test_track_loading.cjs && node tests/test_track_preload.cjs && node tests/test_track_scroll.cjs && node tests/test_track_selection.cjs && node tests/test_control_tasks.cjs && node tests/test_manual_print.cjs && node tests/test_cloud_auth.cjs"
   },
   "devDependencies": {
     "jsdom": "26.1.0"
