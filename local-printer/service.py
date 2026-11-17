@@ -13,7 +13,7 @@ from typing import Literal
 ROOT=Path(__file__).resolve().parent
 DATA=Path(os.environ.get('FINDMY_PRINTER_DATA') or (str(Path(os.environ['LOCALAPPDATA'])/'FindMyPrint') if getattr(sys,'frozen',False) else str(ROOT/'data')));DATA.mkdir(parents=True,exist_ok=True)
 DB=DATA/'jobs.sqlite3'
-ORIGINS={'https://47.106.211.14','https://47.106.211.14:18444','https://47.106.211.14:18445','https://47.106.211.14:18446','http://127.0.0.1:8767','http://127.0.0.1:8769','http://127.0.0.1:8771','http://127.0.0.1:8870','https://47.106.211.14:18443'}
+ORIGINS={'https://192.168.168.162','https://192.168.168.162:18443','https://192.168.168.162:18444','https://192.168.168.162:18445','https://192.168.168.162:18446','https://47.106.211.14','https://47.106.211.14:18444','https://47.106.211.14:18445','https://47.106.211.14:18446','http://127.0.0.1:8767','http://127.0.0.1:8769','http://127.0.0.1:8771','http://127.0.0.1:8870','https://47.106.211.14:18443'}
 lock=threading.Lock();pool=ThreadPoolExecutor(max_workers=1)
 with sqlite3.connect(DB) as c:
  c.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL, detail TEXT, spool_id INTEGER, created REAL)')

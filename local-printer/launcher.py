@@ -1,7 +1,7 @@
 """Windows desktop launcher; service uses a separate hidden child process."""
 import sys,os,json,subprocess,urllib.request,webbrowser
 from pathlib import Path
-URL='https://47.106.211.14/'
+URL=os.environ.get('FINDMY_WEB_URL','https://192.168.168.162/')
 DATA=Path(os.environ.get('FINDMY_PRINTER_DATA') or str(Path(os.environ['LOCALAPPDATA'])/'FindMyPrint'))
 os.environ['FINDMY_PRINTER_DATA']=str(DATA)
 DATA.mkdir(parents=True,exist_ok=True)
